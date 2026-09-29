@@ -102,6 +102,28 @@ RDPGW supports header-based authentication for integration with reverse proxy se
 
 For detailed configuration and examples, see the [Header Authentication Documentation](docs/header-authentication.md).
 
+## Hosts
+
+The hosts users can reach are defined in the configuration, never by the user
+unless you explicitly allow it. Hosts can have display names, per-user and
+per-group access rules and placeholders such as `{{ user }}`, and can be kept in
+a separate hosts file that is reloaded at runtime:
+
+```yaml
+Server:
+  HostSelection: unsigned
+  HostsFile: /etc/rdpgw/hosts.yaml   # optional, reloaded on SIGHUP / change
+  Hosts:
+    - xrdp:3389
+    - id: finance
+      name: Finance terminal server
+      address: fin-ts01.corp.local:3389
+      groups: [finance]
+```
+
+See [Hosts and host selection](docs/hosts.md) for all options, including the
+host selection modes and letting users type in hosts that match your patterns.
+
 ## TLS
 
 The gateway requires a valid TLS certificate. This means a certificate that is signed by a valid CA that is in the store 
@@ -160,18 +182,29 @@ Server:
  # local address to bind both the gateway and automatic TLS challenge listeners.
  # Empty binds to all interfaces. IPv4 and IPv6 addresses are supported.
  # BindAddress: 127.0.0.1
- # list of acceptable desktop hosts to connect to
+ # list of acceptable desktop hosts to connect to, as "host:port" strings or
+ # as mappings with id / name / address / description / groups / users /
+ # default. See docs/hosts.md.
  Hosts:
   - localhost:3389
-  - my-{{ preferred_username }}-host:3389
- # if true the server randomly selects a host to connect to
- # valid options are: 
- #  - roundrobin, which selects a random host from the list (default)
- #  - signed, a listed host specified in the signed query parameter
- #  - unsigned, a listed host specified in the query parameter
+  - id: my-host
+    name: "{{ user }}'s desktop"
+    address: my-{{ user }}-host:3389
+ # optional YAML file with more hosts under a top-level `hosts:` key. It is
+ # reloaded on SIGHUP and when it changes.
+ # HostsFile: /etc/rdpgw/hosts.yaml
+ # how the destination is chosen:
+ #  - roundrobin, a random host the user may use (default)
+ #  - signed, a listed host named in a signed query parameter
+ #  - unsigned, the user picks a listed host (by id or address)
  #  - any, allow any host specified in the query parameter, gated by the
  #    AllowedDestinationPorts / AllowPrivateDestinations options below.
- HostSelection: roundrobin 
+ HostSelection: roundrobin
+ # With HostSelection: unsigned, let users type in hosts matching these
+ # patterns (hostname globs or CIDRs, optional :port). Empty disables.
+ # UserHostPatterns:
+ #  - "*.lab.example.com:3389"
+ #  - 10.20.0.0/16
  # When HostSelection: any, only these TCP ports may be forwarded to.
  # Empty defaults to [3389]. Ignored for the curated host modes
  # (roundrobin, signed, unsigned).
@@ -205,6 +238,9 @@ OpenId:
  ProviderUrl: http://keycloak/auth/realms/test
  ClientId: rdpgw
  ClientSecret: your-secret
+ # ID token claim with the user's groups, for group restricted hosts.
+ # Nested claims use dots, e.g. realm_access.roles
+ # GroupsClaim: groups
 # Kerberos:
 #  Keytab: /etc/keytabs/rdpgw.keytab
 #  Krb5conf: /etc/krb5.conf
@@ -255,7 +291,20 @@ Security:
   # Verifies if the ip used to connect to download the rdp file equals from where the
   # connection is opened.
   VerifyClientIp: true
+# Web interface branding (all optional)
+# Web:
+#   Title: Acme Remote Access
+#   Logo: Acme
+#   PageTitle: Select a desktop
+#   PrimaryColor: "#1f6feb"
+#   # directory whose files override the built-in index.html / style.css / app.js
+#   TemplatesPath: /etc/rdpgw/templates
 ```
+
+Section and key names are case-insensitive, so `server:` and `Server:` are
+equivalent. Every option can also be set from the environment as
+`RDPGW_<SECTION>__<KEY>` with underscores between words, e.g.
+`RDPGW_SERVER__HOST_SELECTION=unsigned` or `RDPGW_WEB__TITLE="Acme"`.
 
 ## How to build & install
 
@@ -301,10 +350,15 @@ flavor. You can login with 'admin/admin'. The RDP file will download and you can
 desktop client. Also for logging in 'admin/admin' will work.
 
 ## Use
-Point your browser to `https://your-gateway/connect`. After authentication
-and RDP file will download to your desktop. This file can be opened by one
-of the remote desktop clients and it will try to connect to the gateway and
-desktop host behind it.
+Point your browser to `https://your-gateway/`. After authentication you see the
+hosts you are allowed to use; picking one downloads an RDP file that opens in
+your remote desktop client and connects through the gateway. The web interface
+is built into the binary and can be branded or replaced; see
+[the templates README](cmd/rdpgw/templates/README.md).
+
+`https://your-gateway/connect` downloads an RDP file directly (for
+`roundrobin`), and `https://your-gateway/connect?host=<id>` downloads one for a
+specific host.
 
 ### Overriding RDP options from the URL
 The `/connect` endpoint can apply caller-supplied RDP setting overrides from
@@ -388,9 +442,6 @@ The official Microsoft IOS and Android clients seem also more flexible.
 
 Third party clients like [FreeRDP](https://www.freerdp.com) might also provide more
 flexibility.
-
-## TODO
-* Improve Web Interface
 
 # Acknowledgements
 * This product includes software developed by the Thomson Reuters Global Resources. ([go-ntlm](https://github.com/m7913d/go-ntlm) - BSD-4 License)

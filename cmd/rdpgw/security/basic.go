@@ -3,38 +3,44 @@ package security
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
-	"strings"
+
+	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/hosts"
 )
 
-var (
-	Hosts         []string
-	HostSelection string
-)
+// HostPolicy decides which destinations a tunnel may be opened to. It is
+// shared with the web frontend so both apply the same rules.
+var HostPolicy *hosts.Policy
 
+// CheckHost verifies a destination for tunnels that were not issued a PAA
+// token (basic, NTLM, Kerberos): the client names the host itself, so the
+// catalog, access rules and destination policy are applied here.
 func CheckHost(ctx context.Context, host string) (bool, error) {
-	switch HostSelection {
-	case "any":
-		return true, nil
-	case "signed":
-		// todo get from context?
-		return false, errors.New("cannot verify host in 'signed' mode as token data is missing")
-	case "roundrobin", "unsigned":
-		s := getTunnel(ctx)
-		if s.User.UserName() == "" {
-			return false, errors.New("no valid session info or username found in context")
-		}
-
-		log.Printf("Checking host for user %s", s.User.UserName())
-		for _, h := range Hosts {
-			h = strings.Replace(h, "{{ preferred_username }}", s.User.UserName(), 1)
-			if h == host {
-				return true, nil
-			}
-		}
-		return false, fmt.Errorf("invalid host %s", host)
+	if HostPolicy == nil {
+		return false, errors.New("no host policy configured")
+	}
+	s := getTunnel(ctx)
+	if s == nil || s.User == nil {
+		return false, errors.New("no valid session info found in context")
 	}
 
-	return false, errors.New("unrecognized host selection criteria")
+	subject := hosts.SubjectFrom(s.User)
+	log.Printf("Checking host %s for user %s", host, subject.UserName)
+	if err := HostPolicy.Authorize(subject, host); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CheckPinnedHost verifies a destination for tunnels authenticated with a PAA
+// token. CheckSession has already matched the host against the one pinned in
+// the token, which /connect chose under the host policy.
+func CheckPinnedHost(ctx context.Context, host string) (bool, error) {
+	if HostPolicy == nil {
+		return false, errors.New("no host policy configured")
+	}
+	if err := HostPolicy.AuthorizePinned(host); err != nil {
+		return false, err
+	}
+	return true, nil
 }

@@ -23,17 +23,26 @@ const (
 type OIDC struct {
 	oAuth2Config      *oauth2.Config
 	oidcTokenVerifier *oidc.IDTokenVerifier
+	groupsClaim       string
+	keepGroup         GroupFilter
 }
 
 type OIDCConfig struct {
 	OAuth2Config      *oauth2.Config
 	OIDCTokenVerifier *oidc.IDTokenVerifier
+	// GroupsClaim names the ID token claim holding group memberships,
+	// possibly nested ("realm_access.roles"). Empty disables groups.
+	GroupsClaim string
+	// KeepGroup limits which groups are stored in the session.
+	KeepGroup GroupFilter
 }
 
 func (c *OIDCConfig) New() *OIDC {
 	return &OIDC{
 		oAuth2Config:      c.OAuth2Config,
 		oidcTokenVerifier: c.OIDCTokenVerifier,
+		groupsClaim:       c.GroupsClaim,
+		keepGroup:         c.KeepGroup,
 	}
 }
 
@@ -131,9 +140,13 @@ func (h *OIDC) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	userName := findUsernameInClaims(data)
 	if userName == "" {
 		http.Error(w, "no oidc claim for username found", http.StatusInternalServerError)
+		return
 	}
 
 	id.SetUserName(userName)
+	if h.groupsClaim != "" {
+		id.SetGroups(filterGroups(userName, groupsFromClaim(claimValue(data, h.groupsClaim)), h.keepGroup))
+	}
 	id.SetAuthenticated(true)
 	id.SetAuthTime(time.Now())
 	id.SetAttribute(identity.AttrAccessToken, oauth2Token.AccessToken)

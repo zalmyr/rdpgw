@@ -35,6 +35,8 @@ type Identity interface {
 	SetEmail(string)
 	Expiry() time.Time
 	SetExpiry(time.Time)
+	Groups() []string
+	SetGroups([]string)
 	Marshal() ([]byte, error)
 	Unmarshal([]byte) error
 }

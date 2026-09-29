@@ -1,95 +1,51 @@
-# RDP Gateway Web Interface Templates
+# RDP Gateway Web Interface
 
-This directory contains the customizable web interface templates for RDP Gateway.
+These files make up the browser interface served at `/`. They are built into
+the `rdpgw` binary, so you don't need to install them anywhere.
 
-## Files
+## Branding without editing files
 
-### `index.html`
-The main HTML template for the web interface. This file uses Go template syntax and can be customized to match your organization's branding.
+```yaml
+Web:
+  Title: Acme Remote Access      # browser tab title
+  Logo: Acme                     # header text
+  PageTitle: Select a desktop    # main heading
+  SelectServerMessage: Select a server to connect
+  PreparingMessage: Preparing your connection...
+  PrimaryColor: "#1f6feb"        # overrides the --primary CSS variable
+```
 
-**Template Variables Available:**
-- `{{.Title}}` - Page title
-- `{{.Logo}}` - Header logo text
-- `{{.PageTitle}}` - Main page heading
-- `{{.SelectServerMessage}}` - Default button text
-- `{{.PreparingMessage}}` - Loading message
-- `{{.AutoLaunchMessage}}` - Auto-launch notice text
+## Replacing files
 
-### `style.css`
-The CSS stylesheet for the web interface. Modify this file to customize:
-- Colors and branding
-- Layout and spacing
-- Fonts and typography
-- Responsive behavior
+Set `Web.TemplatesPath` to a directory (or keep a `./templates` directory next
+to the working directory, as older versions required). Any file found there
+replaces the built-in file with the same name, and files you don't provide fall
+back to the built-in ones. Only change what you need, for example a custom
+`style.css` and `icon.svg`.
 
-### `app.js`
-The JavaScript file containing the web interface logic. This includes:
-- Server list loading and rendering
-- User authentication display
-- **Automatic RDP client launching** (multiple methods)
-- File download fallback
-- Progress animations
+| File | Purpose |
+|------|---------|
+| `index.html` | Go `html/template`. Variables: `{{.Title}}`, `{{.Logo}}`, `{{.PageTitle}}`, `{{.SelectServerMessage}}`, `{{.PreparingMessage}}`, `{{.PrimaryColor}}` |
+| `style.css` | Styles. Colors come from CSS variables in `:root`. |
+| `app.js` | Loads the user, settings and hosts, renders them and downloads the RDP file. |
+| `icon.svg`, `connect.svg` | Logo and host icon. |
 
-### `config-example.json`
-Example configuration structure showing available customization options. These values are set as defaults in the code but can be integrated with your main configuration system.
+Files are served from `/static/<name>` (and `/assets/<name>` for older
+templates) without authentication. Only `.css`, `.js`, `.svg`, `.png`, `.jpg`,
+`.jpeg`, `.ico` and `.woff2` files are served, so a `README.md` or `index.html`
+in the directory is never exposed.
 
-## Auto-Launch Functionality
+## API used by the interface
 
-The interface automatically attempts to launch RDP clients using **actual RDP file content**:
+All endpoints need an authenticated session.
 
-### How It Works:
-1. **Fetches RDP Content**: Gets the complete RDP file configuration from `/api/rdp-content`
-2. **Creates Data URL**: Converts RDP content to a downloadable blob
-3. **Platform-Specific Launch**:
-   - **Windows**: Downloads .rdp file which auto-opens with mstsc
-   - **macOS**: Downloads .rdp file which auto-opens with Microsoft Remote Desktop
-   - **Universal**: Creates temporary download that browsers handle appropriately
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/v1/user` | `{username, authenticated, authTime, groups}` |
+| `GET /api/v1/settings` | `{hostSelection, allowCustomHost, customHostPatterns, message}` |
+| `GET /api/v1/hosts` | `[{id, name, address, description, isDefault, connectUrl}]`, only the hosts this user may use. In `roundrobin` mode this is one "Available Servers" entry, and in `signed` mode it is empty. |
+| `GET /connect[?host=<id or host>]` | The RDP file. Errors are returned as plain text with status 400. |
 
-### Technical Implementation:
-- **`/api/rdp-content`** endpoint generates actual RDP file content with proper tokens
-- **Data URLs** created from RDP content for browser download
-- **Automatic file association** triggers RDP client launch
-- **Graceful fallbacks** ensure users always get the RDP file
-
-## Customization
-
-To customize the interface:
-
-1. **Copy this templates directory** to your preferred location
-2. **Set the templates path** in your RDP Gateway configuration
-3. **Edit the files** to match your branding requirements
-4. **Restart RDP Gateway** to load the new templates
-
-If template files are missing, the system automatically falls back to embedded templates to ensure the interface remains functional.
-
-## API Endpoints
-
-The web interface uses these authenticated API endpoints:
-
-- **`/api/hosts`** - Returns available servers for the user (JSON)
-- **`/api/user`** - Returns current user information (JSON)
-- **`/api/rdp-content`** - Returns RDP file content as text for auto-launch
-- **`/connect`** - Downloads RDP file (traditional endpoint)
-
-## Static File Serving
-
-The following URLs serve static files:
-- `/static/style.css` - CSS stylesheet
-- `/static/app.js` - JavaScript application
-
-These files are served without authentication requirements for better performance.
-
-## Browser Compatibility
-
-The interface supports:
-- Modern browsers (Chrome, Firefox, Safari, Edge)
-- Mobile responsive design
-- Protocol handlers for RDP client launching
-- Graceful fallbacks for unsupported features
-
-## Security Considerations
-
-- Template files are served from the server filesystem
-- Static files include cache headers for performance
-- User authentication is required for the main interface
-- API endpoints validate authentication before serving data
+When you write your own `app.js`, insert values with `textContent` rather than
+`innerHTML`: host names and descriptions come from configuration and from user
+names.

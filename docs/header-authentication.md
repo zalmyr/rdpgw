@@ -15,6 +15,8 @@ Header:
   UserIdHeader: "X-Forwarded-User-Id"   # Optional: User ID header
   EmailHeader: "X-Forwarded-Email"      # Optional: Email header
   DisplayNameHeader: "X-Forwarded-Name" # Optional: Display name header
+  GroupsHeader: "X-Forwarded-Groups"    # Optional: comma separated groups, for
+                                        # group restricted hosts (docs/hosts.md)
   # Required: CIDR allow-list of upstream proxies that may stamp the
   # headers above. Requests arriving from any other RemoteAddr are
   # refused with 401, so the user header cannot be minted by callers

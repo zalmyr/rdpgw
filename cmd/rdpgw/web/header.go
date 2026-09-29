@@ -14,6 +14,8 @@ type Header struct {
 	userIdHeader      string
 	emailHeader       string
 	displayNameHeader string
+	groupsHeader      string
+	keepGroup         GroupFilter
 	trustedProxies    []*net.IPNet
 }
 
@@ -22,6 +24,10 @@ type HeaderConfig struct {
 	UserIdHeader      string
 	EmailHeader       string
 	DisplayNameHeader string
+	// GroupsHeader carries a comma separated list of group memberships.
+	GroupsHeader string
+	// KeepGroup limits which groups are stored in the session.
+	KeepGroup GroupFilter
 	// TrustedProxies is the CIDR allow-list of upstream proxies that may
 	// stamp the configured user header. The check is applied to the
 	// immediate RemoteAddr of the request — operators must configure their
@@ -47,6 +53,8 @@ func (c *HeaderConfig) New() *Header {
 		userIdHeader:      c.UserIdHeader,
 		emailHeader:       c.EmailHeader,
 		displayNameHeader: c.DisplayNameHeader,
+		groupsHeader:      c.GroupsHeader,
+		keepGroup:         c.KeepGroup,
 		trustedProxies:    nets,
 	}
 }
@@ -120,6 +128,10 @@ func (h *Header) Authenticated(next http.Handler) http.Handler {
 			if displayName := r.Header.Get(h.displayNameHeader); displayName != "" {
 				id.SetDisplayName(displayName)
 			}
+		}
+
+		if h.groupsHeader != "" {
+			id.SetGroups(filterGroups(userName, splitGroups(r.Header.Get(h.groupsHeader), ","), h.keepGroup))
 		}
 
 		// Save the session identity
