@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### Host configuration
+
+Existing `Server.Hosts` lists of `host:port` strings keep working. A few things
+behave differently:
+
+* **Config section names are case-insensitive.** Previously only the
+  capitalized form (`Server:`, `Client:` ...) was read and a lowercase
+  section such as `client:` was silently ignored. If your file has
+  such a section, its settings now take effect. Check that they are
+  what you want.
+* **Placeholders only expand to safe values.** An address with
+  `{{ preferred_username }}` (or `{{ username }}`) is only offered when
+  the user name consists of letters, digits, `.`, `_` and `-`. A name
+  like `alice@corp.com` used to produce an invalid host; now the entry
+  is hidden for that user. Use `{{ user }}` and `{{ domain }}` to build
+  hostnames from such names.
+* **`hostselection: any` is enforced at the gateway.** Tunnels
+  authenticated with basic, NTLM or Kerberos (no PAA token) are now held
+  to the same public-address / `AllowedDestinationPorts` rules as
+  `/connect`.
+* **`hostselection: signed` requires `Caps.TokenAuth: true`**, and the
+  gateway refuses to start otherwise. Signed mode never worked without it:
+  the gateway refused every signed host.
+* **With token authentication, the gateway trusts the host pinned in the
+  PAA token.** `/connect` has already applied the host list and access
+  rules. It no longer re-checks the plain host list, which would reject
+  group restricted hosts because PAA tokens carry no groups.
+* **`/api/v1/hosts`** returns only the hosts the user may use, adds a
+  `connectUrl` field, and returns an empty list in `signed` mode. The web
+  interface connects by host id.
+
+### Web interface is built into the binary
+
+`index.html`, `style.css`, `app.js` and the icons are embedded in `rdpgw`.
+The `assets/` directory has moved into `cmd/rdpgw/templates/`, and the
+container image no longer copies `templates/` or `assets/`. A `./templates`
+directory in the working directory, or the directory in `Web.TemplatesPath`,
+still overrides individual files. Old templates that reference
+`/assets/icon.svg` keep working. `templates/config-example.json` was never read
+and has been removed; use the `Web` config section instead.
+
+### Startup is stricter
+
+* A `CertFile` / `KeyFile` pair that can't be loaded now stops startup.
+  Previously the gateway logged "falling back to acme" and started with an
+  empty certificate.
+* An unparsable `GatewayAddress` now stops startup.
+
+### Building the container image
+
+`dev/docker/Dockerfile` builds the checked-out source, so the build context
+is the repository root:
+
+```
+docker build -f dev/docker/Dockerfile .
+```
+
+The compose files in `dev/docker` already set this.
+
 ### Container image no longer bakes a TLS cert and runs as UID 1001
 
 Two changes to `dev/docker/Dockerfile` and the dev image's entrypoint:

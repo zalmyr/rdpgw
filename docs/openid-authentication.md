@@ -20,9 +20,24 @@ Caps:
   TokenAuth: true
 ```
 
+### Groups
+
+Hosts can be restricted to groups (see [Hosts and host selection](hosts.md)).
+The gateway reads group membership from the ID token claim named in
+`OpenId.GroupsClaim` (default `groups`). Use dots for nested claims:
+
+```yaml
+OpenId:
+  GroupsClaim: realm_access.roles   # Keycloak realm roles
+```
+
+Make sure your provider includes the claim in the ID token. In Keycloak, add a
+"Group Membership" mapper to the client scope; in Azure AD, set
+`groupMembershipClaims` in the app manifest.
+
 ## Authentication Flow
 
-1. User navigates to `https://your-gateway/connect`
+1. User navigates to `https://your-gateway/` (or `/connect` to download an RDP file directly)
 2. Gateway redirects to OpenID Connect provider for authentication
 3. User authenticates with the provider (supports MFA)
 4. Provider redirects back to gateway with authentication token
