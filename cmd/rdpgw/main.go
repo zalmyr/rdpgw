@@ -82,7 +82,7 @@ func main() {
 	// set callback url and external advertised gateway address
 	url, err := url.Parse(conf.Server.GatewayAddress)
 	if err != nil {
-		log.Printf("Cannot parse server gateway address %s due to %s", url, err)
+		log.Fatalf("Cannot parse server gateway address %s due to %s", conf.Server.GatewayAddress, err)
 	}
 	if url.Scheme == "" {
 		url.Scheme = "https"
@@ -160,7 +160,7 @@ func main() {
 		if conf.Server.KeyFile != "" && conf.Server.CertFile != "" {
 			cert, err := tls.LoadX509KeyPair(conf.Server.CertFile, conf.Server.KeyFile)
 			if err != nil {
-				log.Printf("Cannot load certfile or keyfile (%s) falling back to acme", err)
+				log.Fatalf("Cannot load certfile %s or keyfile %s: %s", conf.Server.CertFile, conf.Server.KeyFile, err)
 			}
 			cfg.Certificates = append(cfg.Certificates, cert)
 			tlsConfigured = true

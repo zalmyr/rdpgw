@@ -30,8 +30,10 @@ jobs:
     - name: Install golint
       run: go get -u golang.org/x/lint/golint
       
-    - name: Update go.sum
-      run: make mod
+    - name: Verify go.mod / go.sum are tidy
+      run: |
+        make mod
+        git diff --exit-code go.mod go.sum
 
     - name: Build
       run: make build

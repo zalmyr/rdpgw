@@ -9,16 +9,17 @@ Server:
  # BindAddress: "192.168.1.10"  # Specific IP
  Hosts:
   - xrdp:3389
- RoundRobin: false
- SessionKey: thisisasessionkeyreplacethisjetz
- SessionEncryptionKey: thisisasessionkeyreplacethisnunu
+ HostSelection: roundrobin
+ # SessionKey / SessionEncryptionKey: 32 random characters each. Left unset
+ # here so the gateway generates random keys at start (fine for a single
+ # dev instance with SessionStore: file).
 OpenId:
  ProviderUrl: http://keycloak:8080/auth/realms/rdpgw
  ClientId: rdpgw
  ClientSecret: 01cd304c-6f43-4480-9479-618eb6fd578f
 Client:
  UsernameTemplate: "{{ username }}"
-Security:
-  PAATokenSigningKey: prettypleasereplacemeinproductio
+# Security:
+#   PAATokenSigningKey: <32 random characters, shared across instances>
 Caps:
  TokenAuth: true
