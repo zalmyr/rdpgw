@@ -3,18 +3,24 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/bolkedebruin/gokrb5/v8/keytab"
 	"github.com/bolkedebruin/gokrb5/v8/service"
 	"github.com/bolkedebruin/gokrb5/v8/spnego"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/config"
+	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/hosts"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/kdcproxy"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/protocol"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/security"
@@ -38,11 +44,51 @@ var opts struct {
 
 var conf config.Configuration
 
+// templates holds the built-in web interface (index.html, css, js, images).
+//
+//go:embed templates
+var templates embed.FS
+
+// hostsFilePollInterval is how often a configured hosts file is checked for
+// changes, in addition to reloading it on SIGHUP.
+const hostsFilePollInterval = 30 * time.Second
+
 func listenAddress(bindAddress string, port int) string {
 	return net.JoinHostPort(bindAddress, strconv.Itoa(port))
 }
 
-func initOIDC(callbackUrl *url.URL) *web.OIDC {
+func initHostPolicy() *hosts.Policy {
+	policy, err := hosts.NewPolicy(hosts.Config{
+		Selection:                conf.Server.HostSelection,
+		Entries:                  conf.Server.Hosts,
+		HostsFile:                conf.Server.HostsFile,
+		AllowedDestinationPorts:  conf.Server.AllowedDestinationPorts,
+		AllowPrivateDestinations: conf.Server.AllowPrivateDestinations,
+		UserHostPatterns:         conf.Server.UserHostPatterns,
+	})
+	if err != nil {
+		log.Fatalf("Invalid host configuration: %s", err)
+	}
+	log.Printf("Host selection %s with %d configured hosts", policy.Selection(), policy.Catalog().Len())
+
+	if conf.Server.HostsFile != "" {
+		go policy.Watch(hostsFilePollInterval, nil)
+		sighup := make(chan os.Signal, 1)
+		signal.Notify(sighup, syscall.SIGHUP)
+		go func() {
+			for range sighup {
+				if err := policy.Reload(); err != nil {
+					log.Printf("hosts: keeping previous host list, reload of %s failed: %s", conf.Server.HostsFile, err)
+				} else {
+					log.Printf("hosts: reloaded %d entries on SIGHUP", policy.Catalog().Len())
+				}
+			}
+		}()
+	}
+	return policy
+}
+
+func initOIDC(callbackUrl *url.URL, keepGroup web.GroupFilter) *web.OIDC {
 	// set oidc config
 	provider, err := oidc.NewProvider(context.Background(), conf.OpenId.ProviderUrl)
 	if err != nil {
@@ -66,9 +112,20 @@ func initOIDC(callbackUrl *url.URL) *web.OIDC {
 	o := web.OIDCConfig{
 		OAuth2Config:      &oauthConfig,
 		OIDCTokenVerifier: verifier,
+		GroupsClaim:       conf.OpenId.GroupsClaim,
+		KeepGroup:         keepGroup,
 	}
 
 	return o.New()
+}
+
+// builtinTemplates returns the embedded web interface files.
+func builtinTemplates() fs.FS {
+	sub, err := fs.Sub(templates, "templates")
+	if err != nil {
+		log.Fatalf("Cannot load built-in web interface: %s", err)
+	}
+	return sub
 }
 
 func main() {
@@ -96,8 +153,10 @@ func main() {
 	security.UserEncryptionKey = []byte(conf.Security.UserTokenEncryptionKey)
 	security.UserSigningKey = []byte(conf.Security.UserTokenSigningKey)
 	security.QuerySigningKey = []byte(conf.Security.QueryTokenSigningKey)
-	security.HostSelection = conf.Server.HostSelection
-	security.Hosts = conf.Server.Hosts
+	policy := initHostPolicy()
+	security.HostPolicy = policy
+	// only keep groups in the session that some host entry refers to
+	keepGroup := func(g string) bool { return policy.Catalog().ReferencesGroup(g) }
 
 	// init session store
 	web.InitStore([]byte(conf.Server.SessionKey),
@@ -113,20 +172,27 @@ func main() {
 		QueryInfo:        security.QueryInfo,
 		QueryTokenIssuer: conf.Security.QueryTokenIssuer,
 		EnableUserToken:  conf.Security.EnableUserToken,
-		Hosts:            conf.Server.Hosts,
-		HostSelection:    conf.Server.HostSelection,
+		HostPolicy:       policy,
 		RdpOpts: web.RdpOpts{
 			UsernameTemplate:   conf.Client.UsernameTemplate,
 			SplitUserDomain:    conf.Client.SplitUserDomain,
 			NoUsername:         conf.Client.NoUsername,
 			OverridableRdpKeys: conf.Client.RdpOverridableKeys,
 		},
-		GatewayAddress:           url,
-		TemplateFile:             conf.Client.Defaults,
-		RdpSigningCert:           conf.Client.SigningCert,
-		RdpSigningKey:            conf.Client.SigningKey,
-		AllowedDestinationPorts:  conf.Server.AllowedDestinationPorts,
-		AllowPrivateDestinations: conf.Server.AllowPrivateDestinations,
+		GatewayAddress: url,
+		TemplateFile:   conf.Client.Defaults,
+		RdpSigningCert: conf.Client.SigningCert,
+		RdpSigningKey:  conf.Client.SigningKey,
+		TemplatesPath:  conf.Web.TemplatesPath,
+		Templates:      builtinTemplates(),
+		Web: web.WebConfig{
+			Title:               conf.Web.Title,
+			Logo:                conf.Web.Logo,
+			PageTitle:           conf.Web.PageTitle,
+			SelectServerMessage: conf.Web.SelectServerMessage,
+			PreparingMessage:    conf.Web.PreparingMessage,
+			PrimaryColor:        conf.Web.PrimaryColor,
+		},
 	}
 
 	if conf.Caps.TokenAuth {
@@ -207,7 +273,7 @@ func main() {
 
 	if conf.Caps.TokenAuth {
 		gw.CheckPAACookie = security.CheckPAACookie
-		gw.CheckHost = security.CheckSession(security.CheckHost)
+		gw.CheckHost = security.CheckSession(security.CheckPinnedHost)
 	} else {
 		gw.CheckHost = security.CheckHost
 	}
@@ -229,33 +295,17 @@ func main() {
 	// gateway endpoint
 	rdp := r.PathPrefix(gatewayEndPoint).Subrouter()
 
-	// openid
+	// browser facing authentication: openid or header (proxy) auth
+	var webAuth func(http.Handler) http.Handler
 	if conf.Server.OpenIDEnabled() {
 		log.Printf("enabling openid extended authentication")
-		o := initOIDC(url)
-		r.Handle("/connect", o.Authenticated(http.HandlerFunc(h.HandleDownload)))
+		o := initOIDC(url, keepGroup)
 		r.HandleFunc("/callback", o.HandleCallback)
-
-		// Web interface and API routes (authenticated)
-		r.Handle("/", o.Authenticated(http.HandlerFunc(h.HandleWebInterface)))
-		api.Handle("/hosts", o.Authenticated(http.HandlerFunc(h.HandleHostList)))
-		api.Handle("/user", o.Authenticated(http.HandlerFunc(h.HandleUserInfo)))
-
-		// Static files (no authentication required)
-		r.HandleFunc("/static/style.css", h.ServeStaticFile("style.css"))
-		r.HandleFunc("/static/app.js", h.ServeStaticFile("app.js"))
-		// Asset files (no authentication required)
-		r.HandleFunc("/assets/connect.svg", h.ServeAssetFile("connect.svg"))
-		r.HandleFunc("/assets/icon.svg", h.ServeAssetFile("icon.svg"))
-
-		// only enable un-auth endpoint for openid only config
-		if !conf.Server.KerberosEnabled() && !conf.Server.BasicAuthEnabled() && !conf.Server.NtlmEnabled() && !conf.Server.HeaderEnabled() {
-			rdp.Name("gw").HandlerFunc(gw.HandleGatewayProtocol)
+		webAuth = o.Authenticated
+		if conf.Server.HeaderEnabled() {
+			log.Printf("Warning: both openid and header authentication are enabled; the web interface uses openid")
 		}
-	}
-
-	// header auth (configurable proxy)
-	if conf.Server.HeaderEnabled() {
+	} else if conf.Server.HeaderEnabled() {
 		if len(conf.Header.TrustedProxies) == 0 {
 			log.Fatalf("header authentication is enabled but `header.trustedproxies` is empty; refusing to start in an exploitable configuration")
 		}
@@ -265,25 +315,30 @@ func main() {
 			UserIdHeader:      conf.Header.UserIdHeader,
 			EmailHeader:       conf.Header.EmailHeader,
 			DisplayNameHeader: conf.Header.DisplayNameHeader,
+			GroupsHeader:      conf.Header.GroupsHeader,
+			KeepGroup:         keepGroup,
 			TrustedProxies:    conf.Header.TrustedProxies,
 		}
-		headerAuth := headerConfig.New()
-		r.Handle("/connect", headerAuth.Authenticated(http.HandlerFunc(h.HandleDownload)))
+		webAuth = headerConfig.New().Authenticated
+	}
+
+	if webAuth != nil {
+		authed := func(f http.HandlerFunc) http.Handler { return webAuth(f) }
+		r.Handle("/connect", authed(h.HandleDownload))
 
 		// Web interface and API routes (authenticated)
-		r.Handle("/", headerAuth.Authenticated(http.HandlerFunc(h.HandleWebInterface)))
-		api.Handle("/hosts", headerAuth.Authenticated(http.HandlerFunc(h.HandleHostList)))
-		api.Handle("/user", headerAuth.Authenticated(http.HandlerFunc(h.HandleUserInfo)))
+		r.Handle("/", authed(h.HandleWebInterface))
+		api.Handle("/hosts", authed(h.HandleHostList))
+		api.Handle("/user", authed(h.HandleUserInfo))
+		api.Handle("/settings", authed(h.HandleSettings))
 
 		// Static files (no authentication required)
-		r.HandleFunc("/static/style.css", h.ServeStaticFile("style.css"))
-		r.HandleFunc("/static/app.js", h.ServeStaticFile("app.js"))
-		// Asset files (no authentication required)
-		r.HandleFunc("/assets/connect.svg", h.ServeAssetFile("connect.svg"))
-		r.HandleFunc("/assets/icon.svg", h.ServeAssetFile("icon.svg"))
+		r.PathPrefix("/static/").Handler(h.StaticHandler("/static/"))
+		r.PathPrefix("/assets/").Handler(h.StaticHandler("/assets/"))
 
-		// only enable un-auth endpoint for header only config
-		if !conf.Server.KerberosEnabled() && !conf.Server.BasicAuthEnabled() && !conf.Server.NtlmEnabled() && !conf.Server.OpenIDEnabled() {
+		// the token authenticated gateway endpoint is only unauthenticated
+		// at the HTTP level when no HTTP level gateway auth is stacked
+		if !conf.Server.KerberosEnabled() && !conf.Server.BasicAuthEnabled() && !conf.Server.NtlmEnabled() {
 			rdp.Name("gw").HandlerFunc(gw.HandleGatewayProtocol)
 		}
 	}

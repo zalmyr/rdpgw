@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="icon" type="image/svg+xml" href="/assets/icon.svg">
-    <link rel="alternate icon" type="image/x-icon" href="/assets/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+    {{if .PrimaryColor}}<style>:root { --primary: {{.PrimaryColor}}; }</style>{{end}}
 </head>
 <body>
     <div class="header">
         <div class="logo">
-            <img src="/assets/icon.svg" alt="Logo" id="logoImage">
+            <img src="/static/icon.svg" alt="" id="logoImage">
             {{.Logo}}
         </div>
         <div class="user-info">
@@ -24,11 +24,29 @@
         <div class="container">
             <h1 class="title">{{.PageTitle}}</h1>
 
-            <div class="error" id="error"></div>
-            <div class="success" id="success"></div>
+            <div class="error" id="error" role="alert"></div>
+            <div class="success" id="success" role="status"></div>
+            <div class="notice" id="notice" hidden></div>
 
-            <div class="servers-grid" id="serversGrid">
+            <div class="toolbar" id="toolbar" hidden>
+                <input type="search" class="search-input" id="hostSearch"
+                       placeholder="Search servers" aria-label="Search servers" autocomplete="off">
+            </div>
+
+            <div class="servers-grid" id="serversGrid" aria-live="polite">
                 <!-- Servers will be loaded here -->
+            </div>
+
+            <div class="custom-host" id="customHost" hidden>
+                <h2>Connect to another host</h2>
+                <form id="customHostForm">
+                    <input type="text" class="custom-host-input" id="customHostInput"
+                           placeholder="hostname:3389" aria-label="Host name and port"
+                           autocomplete="off" spellcheck="false" required>
+                    <button type="submit" id="customHostButton">Connect</button>
+                </form>
+                <div class="hint" id="customHostHint"></div>
+                <div class="recent-hosts" id="recentHosts"></div>
             </div>
 
             <div class="loading" id="loading">

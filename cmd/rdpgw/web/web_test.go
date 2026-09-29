@@ -29,8 +29,8 @@ const (
 )
 
 var (
-	hosts = []string{"10.0.0.1:3389", "10.1.1.1:3000", "32.32.11.1", "remote.host.com"}
-	key   = []byte("thisisasessionkeyreplacethisjetzt")
+	testHosts = []string{"10.0.0.1:3389", "10.1.1.1:3000", "32.32.11.1", "remote.host.com"}
+	key       = []byte("thisisasessionkeyreplacethisjetzt")
 )
 
 func contains(needle string, haystack []string) bool {
@@ -46,7 +46,7 @@ func TestGetHost(t *testing.T) {
 	ctx := context.Background()
 	c := Config{
 		HostSelection: "roundrobin",
-		Hosts:         hosts,
+		Hosts:         testHosts,
 	}
 	h := c.NewHandler()
 
@@ -59,7 +59,7 @@ func TestGetHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("#{err}")
 	}
-	if !contains(host, hosts) {
+	if !contains(host, testHosts) {
 		t.Fatalf("host %s is not in hosts list", host)
 	}
 
@@ -73,15 +73,15 @@ func TestGetHost(t *testing.T) {
 		t.Fatalf("Accepted host %s is not in hosts list", host)
 	}
 
-	vals.Set("host", hosts[0])
+	vals.Set("host", testHosts[0])
 	u.RawQuery = vals.Encode()
 	h = c.NewHandler()
 	host, err = h.getHost(ctx, u)
 	if err != nil {
-		t.Fatalf("Not accepted host %s is in hosts list (err: %s)", hosts[0], err)
+		t.Fatalf("Not accepted host %s is in hosts list (err: %s)", testHosts[0], err)
 	}
-	if host != hosts[0] {
-		t.Fatalf("host %s is not equal to input %s", host, hosts[0])
+	if host != testHosts[0] {
+		t.Fatalf("host %s is not equal to input %s", host, testHosts[0])
 	}
 
 	// check any -- TEST-NET-3 literal stays in the policy's "publicly
@@ -104,7 +104,7 @@ func TestGetHost(t *testing.T) {
 	c.QueryInfo = security.QueryInfo
 	issuer := "rdpgwtest"
 	security.QuerySigningKey = key
-	queryToken, err := security.GenerateQueryToken(ctx, hosts[0], issuer)
+	queryToken, err := security.GenerateQueryToken(ctx, testHosts[0], issuer)
 	if err != nil {
 		t.Fatalf("cannot generate token")
 	}
@@ -113,10 +113,10 @@ func TestGetHost(t *testing.T) {
 	h = c.NewHandler()
 	host, err = h.getHost(ctx, u)
 	if err != nil {
-		t.Fatalf("Not accepted host %s is in hosts list (err: %s)", hosts[0], err)
+		t.Fatalf("Not accepted host %s is in hosts list (err: %s)", testHosts[0], err)
 	}
-	if host != hosts[0] {
-		t.Fatalf("%s does not equal %s", host, hosts[0])
+	if host != testHosts[0] {
+		t.Fatalf("%s does not equal %s", host, testHosts[0])
 	}
 }
 
@@ -144,7 +144,7 @@ func TestGetHostAnyRejectsSensitiveDestinations(t *testing.T) {
 
 	c := Config{
 		HostSelection: "any",
-		Hosts:         hosts,
+		Hosts:         testHosts,
 	}
 	h := c.NewHandler()
 
@@ -169,7 +169,7 @@ func TestGetHostAnyRejectsSensitiveDestinations(t *testing.T) {
 func TestGetHostAnyAllowsExplicitOptIn(t *testing.T) {
 	c := Config{
 		HostSelection:            "any",
-		Hosts:                    hosts,
+		Hosts:                    testHosts,
 		AllowedDestinationPorts:  []int{3389, 5985},
 		AllowPrivateDestinations: true,
 	}
@@ -209,7 +209,7 @@ func TestHandler_HandleDownload(t *testing.T) {
 	u, _ := url.Parse(gateway)
 	c := Config{
 		HostSelection:     "roundrobin",
-		Hosts:             hosts,
+		Hosts:             testHosts,
 		PAATokenGenerator: paaTokenMock,
 		GatewayAddress:    u,
 		RdpOpts:           RdpOpts{SplitUserDomain: true},
@@ -247,9 +247,9 @@ func TestHandler_HandleDownload(t *testing.T) {
 			data["gatewayaccesstoken"], token)
 	}
 
-	if !contains(data["full address"], hosts) {
+	if !contains(data["full address"], testHosts) {
 		t.Errorf("full address key in rdp is not in allowed hosts list: go %v want in %v",
-			data["full address"], hosts)
+			data["full address"], testHosts)
 	}
 
 }
@@ -372,7 +372,7 @@ func TestHandler_HandleDownload_RdpOverrides(t *testing.T) {
 
 			c := Config{
 				HostSelection:     "roundrobin",
-				Hosts:             hosts,
+				Hosts:             testHosts,
 				PAATokenGenerator: paaTokenMock,
 				GatewayAddress:    u,
 				RdpOpts:           RdpOpts{OverridableRdpKeys: tt.allow},
@@ -418,7 +418,7 @@ func TestHandler_HandleSignedDownload_RdpOverrideApplies(t *testing.T) {
 	u, _ := url.Parse(gateway)
 	c := Config{
 		HostSelection:     "roundrobin",
-		Hosts:             hosts,
+		Hosts:             testHosts,
 		PAATokenGenerator: paaTokenMock,
 		GatewayAddress:    u,
 		RdpOpts:           RdpOpts{OverridableRdpKeys: []string{"use multimon"}},
@@ -466,7 +466,7 @@ func TestHandler_HandleSignedDownload(t *testing.T) {
 	u, _ := url.Parse(gateway)
 	c := Config{
 		HostSelection:     "roundrobin",
-		Hosts:             hosts,
+		Hosts:             testHosts,
 		PAATokenGenerator: paaTokenMock,
 		GatewayAddress:    u,
 		RdpOpts:           RdpOpts{SplitUserDomain: true},
@@ -515,9 +515,9 @@ func TestHandler_HandleSignedDownload(t *testing.T) {
 			data["gatewayaccesstoken"], token)
 	}
 
-	if !contains(data["full address"], hosts) {
+	if !contains(data["full address"], testHosts) {
 		t.Errorf("full address key in rdp is not in allowed hosts list: go %v want in %v",
-			data["full address"], hosts)
+			data["full address"], testHosts)
 	}
 
 	signscopeWant := "GatewayHostname,Full Address,GatewayCredentialsSource,GatewayProfileUsageMethod,GatewayUsageMethod,Alternate Full Address"
@@ -559,7 +559,7 @@ func TestHandler_HandleDownloadWithRdpTemplate(t *testing.T) {
 	u, _ := url.Parse(gateway)
 	c := Config{
 		HostSelection:     "roundrobin",
-		Hosts:             hosts,
+		Hosts:             testHosts,
 		PAATokenGenerator: paaTokenMock,
 		GatewayAddress:    u,
 		RdpOpts:           RdpOpts{SplitUserDomain: true},

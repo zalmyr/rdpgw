@@ -3,8 +3,10 @@ package identity
 import (
 	"bytes"
 	"encoding/gob"
-	"github.com/google/uuid"
+	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type User struct {
@@ -122,6 +124,28 @@ func (u *User) Expiry() time.Time {
 
 func (u *User) SetExpiry(t time.Time) {
 	u.expiry = t
+}
+
+// Groups returns the user's group memberships, sorted.
+func (u *User) Groups() []string {
+	out := make([]string, 0, len(u.groupMembership))
+	for g, member := range u.groupMembership {
+		if member {
+			out = append(out, g)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SetGroups replaces the user's group memberships.
+func (u *User) SetGroups(groups []string) {
+	u.groupMembership = make(map[string]bool, len(groups))
+	for _, g := range groups {
+		if g != "" {
+			u.groupMembership[g] = true
+		}
+	}
 }
 
 func (u *User) Marshal() ([]byte, error) {

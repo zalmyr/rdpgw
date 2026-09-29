@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/hosts"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/security"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/confmap"
@@ -77,15 +78,22 @@ type Configuration struct {
 	Caps     RDGCapsConfig  `koanf:"caps"`
 	Security SecurityConfig `koanf:"security"`
 	Client   ClientConfig   `koanf:"client"`
+	Web      WebConfig      `koanf:"web"`
 }
 
 type ServerConfig struct {
-	GatewayAddress       string   `koanf:"gatewayaddress"`
-	Port                 int      `koanf:"port"`
-	BindAddress          string   `koanf:"bindaddress"`
-	CertFile             string   `koanf:"certfile"`
-	KeyFile              string   `koanf:"keyfile"`
-	Hosts                []string `koanf:"hosts"`
+	GatewayAddress string `koanf:"gatewayaddress"`
+	Port           int    `koanf:"port"`
+	BindAddress    string `koanf:"bindaddress"`
+	CertFile       string `koanf:"certfile"`
+	KeyFile        string `koanf:"keyfile"`
+	// Hosts lists the destinations users may connect to, either as
+	// "host:port" strings or as mappings with id/name/address/groups/users;
+	// see hosts.Entry.
+	Hosts []hosts.Entry `koanf:"hosts"`
+	// HostsFile is an optional YAML file with more entries under a
+	// top-level `hosts:` key. It is re-read on SIGHUP and when it changes.
+	HostsFile            string   `koanf:"hostsfile"`
 	HostSelection        string   `koanf:"hostselection"`
 	SessionKey           string   `koanf:"sessionkey"`
 	SessionEncryptionKey string   `koanf:"sessionencryptionkey"`
@@ -110,6 +118,11 @@ type ServerConfig struct {
 	// Empty (the default) makes the gateway ignore X-Forwarded-For
 	// entirely and use r.RemoteAddr.
 	TrustedProxies []string `koanf:"trustedproxies"`
+	// UserHostPatterns lets users type in their own destination when
+	// HostSelection is unsigned, as long as it matches one of these
+	// patterns (e.g. "*.corp.local:3389", "10.20.0.0/16"). Empty disables
+	// user supplied hosts.
+	UserHostPatterns []string `koanf:"userhostpatterns"`
 }
 
 type KerberosConfig struct {
@@ -121,16 +134,21 @@ type OpenIDConfig struct {
 	ProviderUrl  string `koanf:"providerurl"`
 	ClientId     string `koanf:"clientid"`
 	ClientSecret string `koanf:"clientsecret"`
+	// GroupsClaim is the ID token claim with the user's groups, used by
+	// group restricted hosts. Nested claims use dots: realm_access.roles.
+	GroupsClaim string `koanf:"groupsclaim"`
 }
 
 type HeaderConfig struct {
-	UserHeader      string `koanf:"userheader"`
-	UserIdHeader    string `koanf:"useridheader"`
-	EmailHeader     string `koanf:"emailheader"`
+	UserHeader        string `koanf:"userheader"`
+	UserIdHeader      string `koanf:"useridheader"`
+	EmailHeader       string `koanf:"emailheader"`
 	DisplayNameHeader string `koanf:"displaynameheader"`
+	// GroupsHeader carries a comma separated list of the user's groups.
+	GroupsHeader string `koanf:"groupsheader"`
 	// TrustedProxies is the CIDR allow-list of upstream proxies allowed to
 	// stamp UserHeader (and friends). Empty disables header auth at runtime.
-	TrustedProxies  []string `koanf:"trustedproxies"`
+	TrustedProxies []string `koanf:"trustedproxies"`
 }
 
 type RDGCapsConfig struct {
@@ -172,6 +190,19 @@ type ClientConfig struct {
 	RdpOverridableKeys []string `koanf:"rdpoverridablekeys"`
 }
 
+// WebConfig customizes the browser interface.
+type WebConfig struct {
+	// TemplatesPath is a directory whose files (index.html, style.css,
+	// app.js, images) override the built-in web interface.
+	TemplatesPath       string `koanf:"templatespath"`
+	Title               string `koanf:"title"`
+	Logo                string `koanf:"logo"`
+	PageTitle           string `koanf:"pagetitle"`
+	SelectServerMessage string `koanf:"selectservermessage"`
+	PreparingMessage    string `koanf:"preparingmessage"`
+	PrimaryColor        string `koanf:"primarycolor"`
+}
+
 func ToCamel(s string) string {
 	s = strings.TrimSpace(s)
 	n := strings.Builder{}
@@ -209,11 +240,28 @@ func ToCamel(s string) string {
 
 var Conf Configuration
 
+// mergeLower loads a provider and merges its keys, lowercased, into dst.
+// Struct tags are lowercase and mapstructure only matches case-insensitively
+// within a section, so without this a `server:` section in YAML and the
+// `Server.*` defaults would live side by side and `server:` be ignored.
+func mergeLower(dst *koanf.Koanf, p koanf.Provider, pa koanf.Parser) error {
+	tmp := koanf.New(".")
+	if err := tmp.Load(p, pa); err != nil {
+		return err
+	}
+	for key, val := range tmp.All() {
+		if err := dst.Set(strings.ToLower(key), val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Load(configFile string) Configuration {
 
 	var k = koanf.New(".")
 
-	k.Load(confmap.Provider(map[string]interface{}{
+	mergeLower(k, confmap.Provider(map[string]interface{}{
 		"Server.Tls":                 "auto",
 		"Server.Port":                443,
 		"Server.BindAddress":         "",
@@ -226,17 +274,18 @@ func Load(configFile string) Configuration {
 		"Client.BandwidthAutoDetect": 1,
 		"Security.VerifyClientIp":    true,
 		"Caps.TokenAuth":             true,
+		"OpenId.GroupsClaim":         "groups",
 	}, "."), nil)
 
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		log.Printf("Config file %s not found, using defaults and environment", configFile)
 	} else {
-		if err := k.Load(file.Provider(configFile), yaml.Parser()); err != nil {
+		if err := mergeLower(k, file.Provider(configFile), yaml.Parser()); err != nil {
 			log.Fatalf("Error loading config from file: %v", err)
 		}
 	}
 
-	if err := k.Load(env.ProviderWithValue("RDPGW_", ".", func(s string, v string) (string, interface{}) {
+	if err := mergeLower(k, env.ProviderWithValue("RDPGW_", ".", func(s string, v string) (string, interface{}) {
 		key := strings.Replace(strings.ToLower(strings.TrimPrefix(s, "RDPGW_")), "__", ".", -1)
 		key = ToCamel(key)
 
@@ -253,13 +302,20 @@ func Load(configFile string) Configuration {
 	}
 
 	koanfTag := koanf.UnmarshalConf{Tag: "koanf"}
-	k.UnmarshalWithConf("Server", &Conf.Server, koanfTag)
-	k.UnmarshalWithConf("OpenId", &Conf.OpenId, koanfTag)
-	k.UnmarshalWithConf("Header", &Conf.Header, koanfTag)
-	k.UnmarshalWithConf("Caps", &Conf.Caps, koanfTag)
-	k.UnmarshalWithConf("Security", &Conf.Security, koanfTag)
-	k.UnmarshalWithConf("Client", &Conf.Client, koanfTag)
-	k.UnmarshalWithConf("Kerberos", &Conf.Kerberos, koanfTag)
+	for section, dst := range map[string]interface{}{
+		"server":   &Conf.Server,
+		"openid":   &Conf.OpenId,
+		"header":   &Conf.Header,
+		"caps":     &Conf.Caps,
+		"security": &Conf.Security,
+		"client":   &Conf.Client,
+		"kerberos": &Conf.Kerberos,
+		"web":      &Conf.Web,
+	} {
+		if err := k.UnmarshalWithConf(section, dst, koanfTag); err != nil {
+			log.Fatalf("Invalid configuration in section %s: %s", section, err)
+		}
+	}
 
 	if err := checkDefaultSecrets(&Conf); err != nil {
 		log.Fatalf("refusing to start: %s", err)
@@ -294,6 +350,10 @@ func Load(configFile string) Configuration {
 
 	if Conf.Server.HostSelection == "signed" && len(Conf.Security.QueryTokenSigningKey) == 0 {
 		log.Fatalf("host selection is set to `signed` but `querytokensigningkey` is not set")
+	}
+
+	if Conf.Server.HostSelection == "signed" && !Conf.Caps.TokenAuth {
+		log.Fatalf("host selection `signed` requires caps.tokenauth: the gateway can only verify signed hosts through the PAA token")
 	}
 
 	if Conf.Server.BasicAuthEnabled() && Conf.Server.Tls == "disable" {

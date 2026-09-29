@@ -10,8 +10,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/hosts"
 	"github.com/bolkedebruin/rdpgw/cmd/rdpgw/identity"
 )
+
+func mustPolicy(t *testing.T, selection string, addresses ...string) *hosts.Policy {
+	t.Helper()
+	entries := make([]hosts.Entry, 0, len(addresses))
+	for _, a := range addresses {
+		entries = append(entries, hosts.Entry{Address: a})
+	}
+	p, err := hosts.NewPolicy(hosts.Config{Selection: selection, Entries: entries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func TestHandleHostList(t *testing.T) {
 	tests := []struct {
@@ -47,11 +61,13 @@ func TestHandleHostList(t *testing.T) {
 			expectedType:  "individual",
 		},
 		{
+			// signed links come from an external portal, so the web
+			// interface has nothing to offer
 			name:          "signed mode",
 			hostSelection: "signed",
 			hosts:         []string{"host1.example.com", "host2.example.com"},
 			authenticated: true,
-			expectedCount: 2,
+			expectedCount: 0,
 			expectedType:  "signed",
 		},
 		{
@@ -68,8 +84,7 @@ func TestHandleHostList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create handler
 			handler := &Handler{
-				hostSelection: tt.hostSelection,
-				hosts:         tt.hosts,
+				policy: mustPolicy(t, tt.hostSelection, tt.hosts...),
 			}
 
 			// Create request
@@ -244,7 +259,6 @@ func TestHandleWebInterface(t *testing.T) {
 			handler := &Handler{
 				templatesPath: "./templates",
 			}
-			handler.loadWebConfig()
 			handler.loadHTMLTemplate()
 
 			// Create request
@@ -354,8 +368,7 @@ func TestHostSelectionIntegration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create handler
 			handler := &Handler{
-				hostSelection:  tt.hostSelection,
-				hosts:          tt.hosts,
+				policy:         mustPolicy(t, tt.hostSelection, tt.hosts...),
 				gatewayAddress: &url.URL{Host: "gateway.example.com"},
 			}
 

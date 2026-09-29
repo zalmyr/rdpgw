@@ -1,7 +1,5 @@
 .git
 .github
 bin
-dev/docker/*.yml
 docs
-*.md
-!cmd/rdpgw/templates/README.md
+dev/docker/*.yml

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -164,5 +166,52 @@ func TestHeaderConfigValidation(t *testing.T) {
 				t.Error("expected configuration to be invalid")
 			}
 		})
+	}
+}
+func TestLoadIsCaseInsensitiveAndDecodesHosts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rdpgw.yaml")
+	body := `
+server:
+  tls: disable
+  port: 8080
+  hostselection: unsigned
+  hosts:
+    - legacy:3389
+    - id: fin
+      name: Finance
+      address: fin-ts01:3389
+      groups: [finance]
+  userhostpatterns: ["*.lab"]
+Client:
+  RdpOverridableKeys: [audiomode]
+web:
+  title: Acme Remote
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RDPGW_OPEN_ID__GROUPS_CLAIM", "realm_access.roles")
+
+	Conf = Configuration{}
+	c := Load(path)
+
+	if c.Server.Tls != "disable" || c.Server.Port != 8080 {
+		t.Errorf("lowercase server section ignored: tls=%q port=%d", c.Server.Tls, c.Server.Port)
+	}
+	if len(c.Server.Hosts) != 2 || c.Server.Hosts[0].Address != "legacy:3389" ||
+		c.Server.Hosts[1].ID != "fin" || c.Server.Hosts[1].Groups[0] != "finance" {
+		t.Errorf("hosts decoded as %+v", c.Server.Hosts)
+	}
+	if len(c.Server.UserHostPatterns) != 1 || c.Server.UserHostPatterns[0] != "*.lab" {
+		t.Errorf("userhostpatterns = %v", c.Server.UserHostPatterns)
+	}
+	if len(c.Client.RdpOverridableKeys) != 1 {
+		t.Errorf("mixed case client section ignored: %v", c.Client.RdpOverridableKeys)
+	}
+	if c.Web.Title != "Acme Remote" {
+		t.Errorf("web section ignored: %+v", c.Web)
+	}
+	if c.OpenId.GroupsClaim != "realm_access.roles" {
+		t.Errorf("env override of groups claim = %q", c.OpenId.GroupsClaim)
 	}
 }

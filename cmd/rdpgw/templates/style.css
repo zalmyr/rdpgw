@@ -303,3 +303,118 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.5);
 }
+/* Host search, custom host form, notices */
+.toolbar {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.search-input,
+.custom-host-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 1rem;
+}
+
+.search-input:focus,
+.custom-host-input:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+.custom-host {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+.custom-host h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.custom-host form {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.custom-host button {
+    background: var(--primary);
+    color: var(--background);
+    border: none;
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1.25rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.custom-host button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.hint {
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+.recent-hosts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.recent-hosts button {
+    background: var(--secondary);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.notice {
+    text-align: center;
+    color: var(--muted-foreground);
+    padding: 1.5rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 1rem;
+}
+
+.badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.5rem;
+    margin-left: 0.5rem;
+    border-radius: 999px;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    color: var(--muted-foreground);
+    vertical-align: middle;
+}
+
+.server-address {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+    margin-top: 0.25rem;
+    word-break: break-all;
+}
+
+[hidden] {
+    display: none !important;
+}

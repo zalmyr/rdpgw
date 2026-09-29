@@ -33,11 +33,8 @@ COPY --chown=1001 dev/docker/run.sh run.sh
 COPY --chown=1001 --from=builder /opt/rdpgw /opt/rdpgw
 COPY --chown=1001 --from=builder /etc/passwd /etc/passwd
 
-# Copy templates directory
-COPY --from=builder /app/cmd/rdpgw/templates /opt/rdpgw/templates
-
-# Copy assets directory from the app source
-COPY --chown=1001 --from=builder /app/assets /opt/rdpgw/assets
+# The web interface is built into the binary. Mount a directory and set
+# RDPGW_WEB__TEMPLATES_PATH to override individual files.
 
 WORKDIR /opt/rdpgw
 ENTRYPOINT ["/bin/sh", "/run.sh"]
